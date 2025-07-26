@@ -1,0 +1,184 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lua Script Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lua5.1.js@0.2.2/dist/lua.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold text-center mb-4">Lua Script Runner</h1>
+        <div class="flex mb-4">
+            <button id="luaTab" class="flex-1 py-2 px-4 bg-blue-500 text-white font-semibold hover:bg-blue-600">Lua Code</button>
+            <button id="robloxTab" class="flex-1 py-2 px-4 bg-gray-300 text-gray-800 font-semibold hover:bg-gray-400">Roblox Studio</button>
+        </div>
+
+        <!-- Lua Code Tab -->
+        <div id="luaContent" class="block">
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1">
+                    <h2 class="text-xl font-semibold mb-2">Редактор кода</h2>
+                    <textarea id="luaCode" class="w-full h-64 p-2 border rounded-md font-mono text-sm" placeholder="Введите Lua код..."></textarea>
+                    <button id="runButton" class="mt-2 py-2 px-4 bg-green-500 text-white font-semibold rounded-md hover:bg-green-600">Запустить</button>
+                </div>
+                <div class="flex-1">
+                    <h2 class="text-xl font-semibold mb-2">Консоль</h2>
+                    <div id="console" class="w-full h-64 p-2 border rounded-md bg-black text-white font-mono text-sm overflow-auto"></div>
+                </div>
+            </div>
+            <div class="mt-4">
+                <h2 class="text-xl font-semibold mb-2">Графический вывод</h2>
+                <canvas id="canvas" class="border" width="400" height="300"></canvas>
+            </div>
+        </div>
+
+        <!-- Roblox Studio Tab -->
+        <div id="robloxContent" class="hidden">
+            <h2 class="text-xl font-semibold mb-2">Примеры для Roblox Studio</h2>
+            <p class="mb-4">Выберите пример кода для Roblox Studio и запустите его.</p>
+            <select id="robloxExamples" class="p-2 border rounded-md mb-4">
+                <option value="0">Выберите пример...</option>
+                <option value="1">Создание части (Part)</option>
+                <option value="2">Движение игрока</option>
+            </select>
+            <textarea id="robloxCode" class="w-full h-64 p-2 border rounded-md font-mono text-sm" placeholder="Код Roblox Lua появится здесь..."></textarea>
+            <button id="runRobloxButton" class="mt-2 py-2 px-4 bg-green-500 text-white font-semibold rounded-md hover:bg-green-600">Запустить</button>
+            <div id="robloxConsole" class="mt-4 w-full h-64 p-2 border rounded-md bg-black text-white font-mono text-sm overflow-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        const luaTab = document.getElementById('luaTab');
+        const robloxTab = document.getElementById('robloxTab');
+        const luaContent = document.getElementById('luaContent');
+        const robloxContent = document.getElementById('robloxContent');
+        const luaCode = document.getElementById('luaCode');
+        const consoleOutput = document.getElementById('console');
+        const runButton = document.getElementById('runButton');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const robloxCode = document.getElementById('robloxCode');
+        const robloxExamples = document.getElementById('robloxExamples');
+        const runRobloxButton = document.getElementById('runRobloxButton');
+        const robloxConsole = document.getElementById('robloxConsole');
+
+        // Переключение вкладок
+        luaTab.addEventListener('click', () => {
+            luaTab.classList.add('bg-blue-500', 'text-white');
+            luaTab.classList.remove('bg-gray-300', 'text-gray-800');
+            robloxTab.classList.add('bg-gray-300', 'text-gray-800');
+            robloxTab.classList.remove('bg-blue-500', 'text-white');
+            luaContent.classList.remove('hidden');
+            robloxContent.classList.add('hidden');
+        });
+
+        robloxTab.addEventListener('click', () => {
+            robloxTab.classList.add('bg-blue-500', 'text-white');
+            robloxTab.classList.remove('bg-gray-300', 'text-gray-800');
+            luaTab.classList.add('bg-gray-300', 'text-gray-800');
+            luaTab.classList.remove('bg-blue-500', 'text-white');
+            robloxContent.classList.remove('hidden');
+            luaContent.classList.add('hidden');
+        });
+
+        // Инициализация Lua
+        const lua = new Lua.State();
+        lua.execute('print = function(...) local args = {...} for i, v in ipairs(args) do js.global.document:getElementById("console"):append(v .. "\\n") end end');
+
+        // Функции для рисования на canvas
+        lua.execute(`
+            function drawPixel(x, y, r, g, b)
+                js.global.ctx:fillStyle("rgb(" .. r .. "," .. g .. "," .. b .. ")")
+                js.global.ctx:fillRect(x, y, 1, 1)
+            end
+            function clearCanvas()
+                js.global.ctx:clearRect(0, 0, js.global.canvas.width, js.global.canvas.height)
+            end
+        `);
+
+        // Запуск Lua кода
+        runButton.addEventListener('click', () => {
+            consoleOutput.textContent = '';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            try {
+                lua.execute(luaCode.value);
+            } catch (e) {
+                consoleOutput.textContent = 'Ошибка: ' + e.message;
+            }
+        });
+
+        // Примеры кода для Roblox Studio
+        const robloxExamplesCode = {
+            1: `-- Создание части (Part) в Roblox
+local part = Instance.new("Part")
+part.Size = Vector3.new(5, 1, 5)
+part.Position = Vector3.new(0, 10, 0)
+part.BrickColor = BrickColor.new("Really red")
+part.Parent = game.Workspace
+print("Часть создана в Workspace!")`,
+            2: `-- Движение игрока
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+humanoid:MoveTo(Vector3.new(10, 0, 10))
+print("Игрок движется к точке (10, 0, 10)!")`
+        };
+
+        robloxExamples.addEventListener('change', () => {
+            const selected = robloxExamples.value;
+            robloxCode.value = selected === '0' ? '' : robloxExamplesCode[selected];
+        });
+
+        // Запуск Roblox кода (эмуляция)
+        runRobloxButton.addEventListener('click', () => {
+            robloxConsole.textContent = '';
+            try {
+                lua.execute(robloxCode.value);
+            } catch (e) {
+                robloxConsole.textContent = 'Ошибка: ' + e.message;
+            }
+        });
+    </script>
+</body>
+</html>
